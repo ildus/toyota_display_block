@@ -130,6 +130,36 @@ void setup() {
 	Serial.println("Started");
 }
 
+void check_connections() {
+	static Connection *last = nullptr;
+	static unsigned int last_time;
+	Connection *current = nullptr;
+
+	int pins[] = {KEY_S0, KEY_S1, KEY_S2, KEY_S3};
+	for (int in : pins) {
+		int out = check_connection(in);
+		if (out > 0) {
+			for (Connection &conn : connections) {
+				if (conn.in == in && conn.out == out) {
+					current = &conn;
+					break;
+				}
+			}
+			break;
+		}
+	}
+
+	if (current && last != current) {
+		unsigned int current_time = millis();
+		if (last_time > 0 && (current_time - last_time > 50)) {
+			Serial.println(current->description);
+			blink();
+		}
+		last_time = current_time;
+	}
+
+	last = current;
+}
 
 void loop() {
 	static ButtonState eject_state, mute_state, power_state;
@@ -175,21 +205,7 @@ void loop() {
 	}
 	mode_state.position = 0;
 
-	int pins[] = {KEY_S0, KEY_S1, KEY_S2, KEY_S3};
-	for (int in : pins) {
-		int out = check_connection(in);
-		if (out > 0) {
-			for (Connection &conn : connections) {
-				if (conn.in == in && conn.out == out) {
-					Serial.println(conn.description);
-					blink();
-					break;
-				}
-			}
-			break;
-		}
-	}
-
+	check_connections();
 	check_blink(A0, current_time);
 	delay(50);
 }
