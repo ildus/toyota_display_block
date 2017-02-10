@@ -15,6 +15,11 @@
 #define KEY_D2 A3
 #define KEY_D3 12
 #define KEY_D4 A2
+#define LED_PIN A0
+
+using namespace std;
+
+#include <vector>
 
 const int BOUNCE_TIME = 50;
 bool blink_state = false;
@@ -30,13 +35,18 @@ struct EncoderState {
 	char prev_a;
 };
 
+void blink() {
+	blink_state = true;
+}
+
 void check_button_state(ButtonState *state, int pin) {
 	char level = digitalRead(pin);
-	state->clicked = false;
 
 	if (level == LOW && state->old_level != level) {
-		if (millis() - state->last_click > BOUNCE_TIME)
+		if (millis() - state->last_click > BOUNCE_TIME) {
 			state->clicked = true;
+			blink();
+		}
 
 		state->last_click = millis();
 	}
@@ -114,23 +124,18 @@ int check_connection(int pin) {
 	return result_pin;
 }
 
-void blink() {
-	blink_state = true;
-}
-
 void setup() {
 	Serial.begin(9600);
-	pinMode(EJECT_PIN, INPUT);
-	pinMode(A0, OUTPUT);
+	pinMode(LED_PIN, OUTPUT);
 	pinMode(KEY_S0, OUTPUT);
 	pinMode(KEY_S1, OUTPUT);
 	pinMode(KEY_S2, OUTPUT);
 	pinMode(KEY_S3, OUTPUT);
 	blink();
-	Serial.println("Started");
+	Serial.println("working...");
 }
 
-void check_connections() {
+void check_connections(std::vector<Connection*> &vec) {
 	static Connection *last = nullptr;
 	static unsigned int last_time;
 	Connection *current = nullptr;
@@ -152,7 +157,7 @@ void check_connections() {
 	if (current && last != current) {
 		unsigned int current_time = millis();
 		if (last_time > 0 && (current_time - last_time > 50)) {
-			Serial.println(current->description);
+			vec.push_back(current);
 			blink();
 		}
 		last_time = current_time;
@@ -161,51 +166,62 @@ void check_connections() {
 	last = current;
 }
 
+std::vector<Connection *> conns;
+
 void loop() {
 	static ButtonState eject_state, mute_state, power_state;
 	static EncoderState volume_state, mode_state;
+	static unsigned int last_check_time, last_process_time;
 	unsigned int current_time = millis();
 
-	check_button_state(&eject_state, EJECT_PIN);
-	if (eject_state.clicked) {
-		Serial.println("eject");
-		blink();
+	if (current_time - last_check_time > 10) {
+		check_button_state(&eject_state, EJECT_PIN);
+		check_button_state(&mute_state, MUTE_PIN);
+		check_button_state(&power_state, POWER_PIN);
+		check_encoder_state(&volume_state, VOLA_PIN, VOLB_PIN);
+		check_encoder_state(&mode_state, MODEA_PIN, MODEB_PIN);
+		check_connections(conns);
+
+		last_check_time = current_time;
 	}
 
-	check_button_state(&mute_state, MUTE_PIN);
-	if (mute_state.clicked) {
-		Serial.println("mute");
-		blink();
+	if (current_time - last_process_time > 100) {
+		if (eject_state.clicked) {
+			Serial.println("eject");
+			eject_state.clicked = false;
+		}
+
+		if (mute_state.clicked) {
+			Serial.println("mute");
+			mute_state.clicked = false;
+		}
+
+		if (power_state.clicked) {
+			Serial.println("power");
+			power_state.clicked = false;
+		}
+
+		if (volume_state.position != 0) {
+			Serial.print("vol ");
+			Serial.println(volume_state.position);
+			volume_state.position = 0;
+		}
+
+		if (mode_state.position != 0) {
+			Serial.print("mode ");
+			Serial.println(mode_state.position);
+			mode_state.position = 0;
+		}
+
+		if (conns.size() > 0) {
+			for (auto conn: conns) {
+				Serial.println(conn->description);
+			}
+			conns.clear();
+		}
+
+		last_process_time = current_time;
 	}
 
-	check_button_state(&power_state, POWER_PIN);
-	if (power_state.clicked) {
-		Serial.println("power");
-		blink();
-	}
-
-	check_encoder_state(&volume_state, VOLA_PIN, VOLB_PIN);
-	if (volume_state.position > 0) {
-		Serial.print("up to ");
-		Serial.println(volume_state.position);
-		blink();
-	}
-	if (volume_state.position < 0) {
-		Serial.print("down to ");
-		Serial.println(volume_state.position);
-		blink();
-	}
-	volume_state.position = 0;
-
-	check_encoder_state(&mode_state, MODEA_PIN, MODEB_PIN);
-	if (mode_state.position > 0) {
-		Serial.print("mode changed ");
-		Serial.println(mode_state.position);
-		blink();
-	}
-	mode_state.position = 0;
-
-	check_connections();
 	check_blink(A0, current_time);
-	delay(50);
 }
